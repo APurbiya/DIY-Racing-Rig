@@ -1,2 +1,15 @@
+<p align="center">
+  <img src="Images/main_cad.png" alt="DIY-Racing-Rig" width="800">
+</p>
+
+
 # DIY-Racing-Rig
-Me and my buddy want to build a racing rig that moves as the car banks or breaks 
+Making a realistic racing sim that moves with the game.
+By Arnav and Sai 
+
+
+## Assembly Guide
+
+## 3D Printing Guide
+
+## Firmware
