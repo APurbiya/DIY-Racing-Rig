@@ -33,12 +33,14 @@ For structural components like the U-Joint and Center, **PETG** is preferred for
 
 
 ### Phase 1: The Cut List
+![cut_list.png](/Images/Cut_list.png)
 Before beginning assembly, reference the `cut_list.png` diagram. 
 * **Stock:** Use (6) standard 8-foot 2x4s.
 * **Precision:** The cut list accounts for the saw blade kerf. 
 * **Scrap:** Expect a small amount of leftover material at the end of each board.
 
 ### Phase 2: Building the Dual Bases
+![Base_Assembly.png](/Images/Base_Assembly.png)
 You will need to construct **two identical base units** following the `base_assembly` guide. 
 1. Lay out the 2x4 segments as indicated in the assembly diagram.
 2. Fasten the joints using wood screws or heavy-duty lag bolts. 
@@ -52,6 +54,7 @@ This is the mechanical heart of the build.
 4. **Final Marriage:** Join the top base assembly to the bottom base assembly via the U-Joint. Ensure all mechanical pivots move freely before tightening fasteners.
 
 ### Phase 4: Steering Wheel Stand Assembly
+![Upper_Assembly.png](/Images/Upper_Assembly.png)
 The steering wheel stand is a hinged vertical assembly. Reference the `upper_assembly` diagram for specific orientation.
 1. **Hinge Preparation:** Connect **Hinge 1** and **Hinge 2** using an **M10 bolt and nut**. Ensure the hinge is snug but allows for smooth rotation.
 2. **Wood Sequence:** Mount the 2x4 segments to the hinges using wood screws. The assembly order from top to bottom is:
