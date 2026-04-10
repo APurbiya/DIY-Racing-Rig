@@ -57,14 +57,14 @@ Before beginning assembly, reference the `cut_list.png` diagram.
 * **Scrap:** Expect a small amount of leftover material at the end of each board.
 
 ### Phase 2: Building the Dual Bases
-![U_Joint_Assembly](/Images/U_Joint_Assembly.jpg)
+![Base Assembly](/Images/Base_Assembly.png)
 You will need to construct **two identical base units** following the `base_assembly` guide. 
 1. Lay out the 2x4 segments as indicated in the assembly diagram.
 2. Fasten the joints using wood screws or heavy-duty lag bolts. 
 3. **Note:** One base will serve as the ground foundation, while the second will serve as the top platform mounted to the U-Joint.
 
 ### Phase 3: The U-Joint & Center Hub
-![cut_list.png](/Images/Cut_list.png)
+![U_Joint_Assembly](/Images/U_Joint_Assembly.jpg)
 This is the mechanical heart of the build. The U joint is put together with 4 M10 Bolts and Lock Nuts 
 1. **Lower Mount:** Attach the **U-Joint Bottom** to the center of the ground base. 
 2. **Center Integration:** Insert the **Center Hub** into the U-Joint assembly.
