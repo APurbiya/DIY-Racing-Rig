@@ -12,13 +12,13 @@ By Arnav Purbiya and Sai Avula
 
 # Table of Contents
 
-- [System Overview](#-system-overview)
-- [CAD](#-CAD)
-- [3D Printing Guide](#-3D-Printing-Guide)
-- [Assembly Guide](#-Assembly-Guide)
-- [Electronics](#-Electronics)
-- [Firmware](#-Firmware)
-- [BOM](#-BOM)
+- [System Overview](#system-overview)
+- [CAD](#cad)
+- [3D Printing Guide](#3d-printing-guide)
+- [Assembly Guide](#assembly-guide)
+- [Electronics](#electronics)
+- [Firmware](#firmware)
+- [BOM](#bom)
 
 # System Overview
 
