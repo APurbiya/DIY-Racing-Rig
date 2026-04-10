@@ -5,9 +5,22 @@
 </p>
 
 
+
 # DIY-Racing-Rig
 Making a realistic racing sim that moves with the game.
 By Arnav Purbiya and Sai Avula
+
+# Table of Contents
+
+- [System Overview](#-system-overview)
+- [CAD](#-CAD)
+- [3D Printing Guide](#-3D-Printing-Guide)
+- [Assembly Guide](#-Assembly-Guide)
+- [Electronics](#-Electronics)
+- [Firmware](#-Firmware)
+- [BOM](#-BOM)
+
+# System Overview
 
 # CAD
 You can find the cad on onshape, link down bellow
@@ -44,14 +57,15 @@ Before beginning assembly, reference the `cut_list.png` diagram.
 * **Scrap:** Expect a small amount of leftover material at the end of each board.
 
 ### Phase 2: Building the Dual Bases
-![Base_Assembly.png](/Images/Base_Assembly.png)
+![U_Joint_Assembly](/Images/U_Joint_Assembly.jpg)
 You will need to construct **two identical base units** following the `base_assembly` guide. 
 1. Lay out the 2x4 segments as indicated in the assembly diagram.
 2. Fasten the joints using wood screws or heavy-duty lag bolts. 
 3. **Note:** One base will serve as the ground foundation, while the second will serve as the top platform mounted to the U-Joint.
 
 ### Phase 3: The U-Joint & Center Hub
-This is the mechanical heart of the build.
+![cut_list.png](/Images/Cut_list.png)
+This is the mechanical heart of the build. The U joint is put together with 4 M10 Bolts and Lock Nuts 
 1. **Lower Mount:** Attach the **U-Joint Bottom** to the center of the ground base. 
 2. **Center Integration:** Insert the **Center Hub** into the U-Joint assembly.
 3. **Upper Mount:** Attach the **U-Joint Top** to the 41-inch center 2x4 of the second (top) base.
@@ -82,11 +96,11 @@ The seat stand is adjustable based on your specific seating hardware.
 ## Electronics
 ![Wiring Diagram](/Images/Racing_Rig_Circuit.png)
 
-#### Connect the 2 motor controllers to the Arduino uno R3, connect each power supply to its individual motor controller, and connect each AS5600 Magnetic Encoder to the Arduino Uno analog pins, power the Arduino uno with a laptop which also communicates over serial for movement 
+#### Connect the 2 motor controllers to the Arduino uno R3, connect each power supply to its individual motor controller, and connect each AS5600 Magnetic Encoder to the Arduino Uno analog pins, power the Arduino uno with a laptop which also communicates over serial for movement. The motor with the encoder creats a closed loop system which helps track movement exactly.  
 ---
 
 ## Firmware
-This is untested software, but the code talks to simtools which takes data from game and sends it to Arduino over serial and lets the Arduino make the movements necessary.
+This is untested software, but the code talks to simtools which takes data from game and sends it to Arduino over serial and lets the Arduino make the movements necessary. The code is uploaded onto the arduino uno using a printer cable via the arduino IDE
 
 ## BOM 
 |Name                       |Purpose         |Quantity                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |Total Cost (USD)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |Link                                                                                                                                                                       |Distributor   |
