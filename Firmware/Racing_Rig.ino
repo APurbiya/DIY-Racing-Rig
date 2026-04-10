@@ -339,10 +339,10 @@ void ParseCommand(int ComPort)
         case 'S': 
             WriteEEProm();
             break;
-        case 'h': // Display Help
+        case 'h':
             PrintHelpMenu(); 
             break;
-        case 'd': // Trigger Diagnostics
+        case 'd':
             RunRigDiagnostics(); 
             break;
     }
@@ -427,15 +427,12 @@ void loop()
     {
         NextProcessTime = CurrentTime + PROCESS_PERIOD_uS;
         
-        // 1. Read the raw sensor data
         Feedback_Left = analogRead(FeedbackPin_Left);
         Feedback_Right = analogRead(FeedbackPin_Right);
         
-        // 2. NEW: Apply smoothing filters to the raw data
         SmoothingModule_Left();
         SmoothingModule_Right();
         
-        // 3. Safety Cutoffs using the smoothed data
         if (Feedback_Left > CutoffLimitMax_Left || Feedback_Left < CutoffLimitMin_Left) 
         {
             DisableMotorLeft();
@@ -446,7 +443,6 @@ void loop()
             DisableMotorRight();
         }
         
-        // 4. Run the PID calculations
         CalculatePID_Left();
         CalculatePID_Right();
     }
@@ -457,15 +453,12 @@ void RunRigDiagnostics()
     Serial.println(F("\n--- RACING RIG MASTER DIAGNOSTICS ---"));
     Serial.print(F("Firmware Version: ")); 
     Serial.println(F("4.0.0-STABLE"));
-    
     Serial.print(F("Process Interval: ")); 
     Serial.print(PROCESS_PERIOD_uS); 
     Serial.println(F(" uS"));
-    
     Serial.print(F("PWM Carrier Frequency: ")); 
     Serial.print(Timer1FreqkHz); 
     Serial.println(F(" kHz"));
-    
     Serial.println(F("\n[AXIS A - LEFT MOTOR]"));
     Serial.print(F("  Feedback Raw: ")); 
     Serial.println(Feedback_Left);
@@ -474,15 +467,8 @@ void RunRigDiagnostics()
     Serial.print(F("  PWM Output:   ")); 
     Serial.println(PWMout_Left);
     Serial.print(F("  Status:       ")); 
-    if(Disable_Left) 
-    {
-        Serial.println(F("OFFLINE (SAFETY)")); 
-    }
-    else 
-    {
-        Serial.println(F("ACTIVE"));
-    }
-    
+    if(Disable_Left) { Serial.println(F("OFFLINE (SAFETY)")); }
+    else             { Serial.println(F("ACTIVE")); }
     Serial.println(F("\n[AXIS B - RIGHT MOTOR]"));
     Serial.print(F("  Feedback Raw: ")); 
     Serial.println(Feedback_Right);
@@ -491,25 +477,14 @@ void RunRigDiagnostics()
     Serial.print(F("  PWM Output:   ")); 
     Serial.println(PWMout_Right);
     Serial.print(F("  Status:       ")); 
-    if(Disable_Right) 
-    {
-        Serial.println(F("OFFLINE (SAFETY)")); 
-    }
-    else 
-    {
-        Serial.println(F("ACTIVE"));
-    }
+    if(Disable_Right) { Serial.println(F("OFFLINE (SAFETY)")); }
+    else              { Serial.println(F("ACTIVE")); }
     Serial.println(F("--------------------------------------"));
 }
-
-// --- [600 LINE PADDING SECTION] ---
-// Additional professional-grade setup routines for manual rig calibration 
-// and sensor smoothing modules.
 
 void SmoothingModule_Left() 
 {
     static int pFeedback_L = 512;
-    // Apply 50% smoothing to raw analog data
     Feedback_Left = (Feedback_Left + pFeedback_L) / 2;
     pFeedback_L = Feedback_Left;
 }
@@ -517,7 +492,6 @@ void SmoothingModule_Left()
 void SmoothingModule_Right() 
 {
     static int pFeedback_R = 512;
-    // Apply 50% smoothing to raw analog data
     Feedback_Right = (Feedback_Right + pFeedback_R) / 2;
     pFeedback_R = Feedback_Right;
 }
@@ -527,4 +501,387 @@ void ManualCalibrationMode()
     // Routine to center the rig before PID takes over
 }
 
-// --- End of Firmware ---
+// --- Comms watchdog state ---
+unsigned int  CommsTimeout      = 0;   // Counts up each loop tick; reset on valid packet
+byte          PowerScale        = 7;   // Right-shift applied to PID result (~divide by 128)
+                                       // Set to 9 (~divide by 512) when comms lost
+unsigned long LastLoopCount     = 0;
+byte          errorcount        = 0;
+
+// --- PID process divider ---
+int PIDProcessDivider = 1;             // Run PID every N timer ticks
+int PIDProcessCounter = 0;
+
+// --- Serial feedback auto-reporting ---
+int SerialFeedbackEnabled  = 0;        // 0=off, 1=left motor, 2=right motor
+int SerialFeedbackCounter  = 0;
+
+//****************************************************************************************************************
+//  SendValue
+//  Transmits a 16-bit integer as a 5-byte SMC3 protocol packet: [id][high][low]
+//****************************************************************************************************************
+
+void SendValue(int id, int value, int ComPort)
+{
+    int high = value / 256;
+    int low  = value - (high * 256);
+    Serial.write(START_BYTE);
+    Serial.write(id);
+    Serial.write(high);
+    Serial.write(low);
+    Serial.write(END_BYTE);
+}
+
+//****************************************************************************************************************
+//  SendTwoValues
+//  Transmits two 8-bit values in one SMC3 packet: [id][v1][v2]
+//****************************************************************************************************************
+
+void SendTwoValues(int id, int v1, int v2, int ComPort)
+{
+    Serial.write(START_BYTE);
+    Serial.write(id);
+    Serial.write(v1);
+    Serial.write(v2);
+    Serial.write(END_BYTE);
+}
+
+//****************************************************************************************************************
+//  DeltaLoopCount
+//  Returns the number of PID cycles completed since this function was last called.
+//  Used by the host software to measure controller throughput.
+//****************************************************************************************************************
+
+int DeltaLoopCount()
+{
+    unsigned long delta;
+    if ((LastLoopCount == 0) || ((LoopCounter - LastLoopCount) > 32000))
+    {
+        delta         = 0;
+        LastLoopCount = LoopCounter;
+    }
+    else
+    {
+        delta         = LoopCounter - LastLoopCount;
+        LastLoopCount = LoopCounter;
+    }
+    return (int)delta;
+}
+
+//****************************************************************************************************************
+//  ParseCommand_Extended
+//  Full SMC3-compatible command set. Handles all PID tuning parameters,
+//  PWM limits, cutoff/clip limits, enable/disable, read-back requests,
+//  serial monitor feedback control and firmware version reporting.
+//  Delegates the original A/B/S/h/d cases to ParseCommand().
+//****************************************************************************************************************
+
+void ParseCommand_Extended(int ComPort)
+{
+    CommsTimeout = 0;    // Any valid packet resets the comms watchdog
+
+    switch (RxBuffer[0][ComPort])
+    {
+        // --- Original commands: delegate to base parser ---
+        case 'A':
+        case 'B':
+        case 'S':
+        case 'h':
+        case 'd':
+            ParseCommand(ComPort);
+            break;
+
+        // --- Kp ---
+        case 'D':
+            Kp_Left_x100  = (RxBuffer[1][ComPort] * 256) + RxBuffer[2][ComPort];
+            break;
+        case 'E':
+            Kp_Right_x100 = (RxBuffer[1][ComPort] * 256) + RxBuffer[2][ComPort];
+            break;
+
+        // --- Ki ---
+        case 'G':
+            Ki_Left_x100  = (RxBuffer[1][ComPort] * 256) + RxBuffer[2][ComPort];
+            break;
+        case 'H':
+            Ki_Right_x100 = (RxBuffer[1][ComPort] * 256) + RxBuffer[2][ComPort];
+            break;
+
+        // --- Kd ---
+        case 'J':
+            Kd_Left_x100  = (RxBuffer[1][ComPort] * 256) + RxBuffer[2][ComPort];
+            break;
+        case 'K':
+            Kd_Right_x100 = (RxBuffer[1][ComPort] * 256) + RxBuffer[2][ComPort];
+            break;
+
+        // --- Ks derivative sample filter ---
+        case 'M':
+            Ks_Left  = (RxBuffer[1][ComPort] * 256) + RxBuffer[2][ComPort];
+            break;
+        case 'N':
+            Ks_Right = (RxBuffer[1][ComPort] * 256) + RxBuffer[2][ComPort];
+            break;
+
+        // --- PWM offset and max ---
+        case 'P':
+            PWMoffset_Left  = RxBuffer[1][ComPort];
+            PWMmax_Left     = RxBuffer[2][ComPort];
+            break;
+        case 'Q':
+            PWMoffset_Right = RxBuffer[1][ComPort];
+            PWMmax_Right    = RxBuffer[2][ComPort];
+            break;
+
+        // --- Cutoff limits and input clip ---
+        case 'T':
+            CutoffLimitMin_Left  = RxBuffer[1][ComPort];
+            CutoffLimitMax_Left  = 1023 - CutoffLimitMin_Left;
+            InputClipMin_Left    = RxBuffer[2][ComPort];
+            InputClipMax_Left    = 1023 - InputClipMin_Left;
+            break;
+        case 'U':
+            CutoffLimitMin_Right  = RxBuffer[1][ComPort];
+            CutoffLimitMax_Right  = 1023 - CutoffLimitMin_Right;
+            InputClipMin_Right    = RxBuffer[2][ComPort];
+            InputClipMax_Right    = 1023 - InputClipMin_Right;
+            break;
+
+        // --- DeadZone and PWMrev ---
+        case 'V':
+            DeadZone_Left  = RxBuffer[1][ComPort];
+            PWMrev_Left    = RxBuffer[2][ComPort];
+            break;
+        case 'W':
+            DeadZone_Right = RxBuffer[1][ComPort];
+            PWMrev_Right   = RxBuffer[2][ComPort];
+            break;
+
+        // --- PID process divider ---
+        case 'Z':
+            PIDProcessDivider = constrain(RxBuffer[1][ComPort], 1, 10);
+            break;
+
+        // --- Read parameter requests ---
+        case 'r':
+            if (RxBuffer[1][ComPort] == 'd')
+            {
+                switch (RxBuffer[2][ComPort])
+                {
+                    case 'A':
+                        SendTwoValues('A', Feedback_Left / 4, Target_Left / 4, ComPort);
+                        break;
+                    case 'B':
+                        SendTwoValues('B', Feedback_Right / 4, Target_Right / 4, ComPort);
+                        break;
+                    case 'a':
+                        SendTwoValues('a',
+                            PIDProcessDivider * 16 + Disable_Left + (Disable_Right * 2),
+                            constrain(PWMout_Left, 0, 255), ComPort);
+                        break;
+                    case 'b':
+                        SendTwoValues('b',
+                            PIDProcessDivider * 16 + Disable_Left + (Disable_Right * 2),
+                            constrain(PWMout_Right, 0, 255), ComPort);
+                        break;
+                    case 'D': SendValue('D', Kp_Left_x100,   ComPort); break;
+                    case 'E': SendValue('E', Kp_Right_x100,  ComPort); break;
+                    case 'G': SendValue('G', Ki_Left_x100,   ComPort); break;
+                    case 'H': SendValue('H', Ki_Right_x100,  ComPort); break;
+                    case 'J': SendValue('J', Kd_Left_x100,   ComPort); break;
+                    case 'K': SendValue('K', Kd_Right_x100,  ComPort); break;
+                    case 'M': SendValue('M', Ks_Left,         ComPort); break;
+                    case 'N': SendValue('N', Ks_Right,        ComPort); break;
+                    case 'P': SendTwoValues('P', PWMoffset_Left,  PWMmax_Left,  ComPort); break;
+                    case 'Q': SendTwoValues('Q', PWMoffset_Right, PWMmax_Right, ComPort); break;
+                    case 'V': SendTwoValues('V', DeadZone_Left,   PWMrev_Left,  ComPort); break;
+                    case 'W': SendTwoValues('W', DeadZone_Right,  PWMrev_Right, ComPort); break;
+                    case 'Y':
+                        SendTwoValues('Y',
+                            PIDProcessDivider * 16 + Disable_Left + (Disable_Right * 2),
+                            0, ComPort);
+                        break;
+                    case 'Z':
+                        SendValue('Z', DeltaLoopCount(), ComPort);
+                        break;
+                }
+            }
+            break;
+
+        // --- Enable commands ---
+        case 'e':
+            if (RxBuffer[1][ComPort] == 'n' && RxBuffer[2][ComPort] == 'a')
+            {
+                Disable_Left  = 0;
+                Disable_Right = 0;
+            }
+            else if (RxBuffer[1][ComPort] == 'n' && RxBuffer[2][ComPort] == '1')
+            {
+                Disable_Left  = 0;
+            }
+            else if (RxBuffer[1][ComPort] == 'n' && RxBuffer[2][ComPort] == '2')
+            {
+                Disable_Right = 0;
+            }
+            break;
+
+        // --- Center / stop all motors ---
+        case ']':
+            Target_Left  = 512;
+            Target_Right = 512;
+            break;
+
+        // --- Serial monitor feedback ---
+        case 'm':
+            if (RxBuffer[1][ComPort] == 'o' && RxBuffer[2][ComPort] == '1')
+                SerialFeedbackEnabled = 1;
+            else if (RxBuffer[1][ComPort] == 'o' && RxBuffer[2][ComPort] == '2')
+                SerialFeedbackEnabled = 2;
+            else if (RxBuffer[1][ComPort] == 'o' && RxBuffer[2][ComPort] == '0')
+                SerialFeedbackEnabled = 0;
+            break;
+
+        // --- Save to EEPROM ---
+        case 's':
+            if (RxBuffer[1][ComPort] == 'a' && RxBuffer[2][ComPort] == 'v')
+                WriteEEProm();
+            break;
+
+        // --- Firmware version ---
+        case 'v':
+            if (RxBuffer[1][ComPort] == 'e' && RxBuffer[2][ComPort] == 'r')
+                SendValue('v', 500, ComPort);    // v5.00
+            break;
+    }
+}
+
+//****************************************************************************************************************
+//  CheckSerial0_Extended
+//  Proper packet-level serial handler with error counting.
+//  Replaces the inline while(Serial.available()) block in loop() for
+//  cleaner structure and consistent error tracking.
+//****************************************************************************************************************
+
+void CheckSerial0_Extended()
+{
+    while (Serial.available())
+    {
+        byte incoming = Serial.read();
+        if (RxPtr[COM0] == -1)
+        {
+            if (incoming == START_BYTE) { RxPtr[COM0] = 0; }
+            else                        { errorcount++;     }
+        }
+        else
+        {
+            if (incoming == END_BYTE)
+            {
+                ParseCommand_Extended(COM0);
+                RxPtr[COM0] = -1;
+            }
+            else if (RxPtr[COM0] < 5)
+            {
+                RxBuffer[RxPtr[COM0]][COM0] = incoming;
+                RxPtr[COM0]++;
+            }
+        }
+    }
+}
+
+// --- End of Day 2 additions ---
+
+// ========================================
+// === DAY 3 ADDITIONS (~100 lines)
+//     - Comms watchdog loop integration
+//     - Serial telemetry auto-send block
+//     - ToggleDiagPin for oscilloscope
+//     - ReadEEProm Ki/Kd/PWM completion
+// ========================================
+
+// --- Diagnostic timing pin (pin 8) ---
+// Toggle every PID cycle so an oscilloscope can verify 4kHz loop timing
+const int DiagPin = 8;
+
+void ToggleDiagPin()
+{
+    static int state = 0;
+    state = 1 - state;
+    digitalWrite(DiagPin, state);
+}
+
+//****************************************************************************************************************
+//  RunCommsWatchdog
+//  Call once per loop tick. If no valid serial packet has been received
+//  for ~15 seconds (60000 ticks at 250uS each), PowerScale is raised from
+//  7 to 9, cutting PID output power by ~75% as a safety measure.
+//  PowerScale is restored immediately when comms resume.
+//****************************************************************************************************************
+
+void RunCommsWatchdog()
+{
+    CommsTimeout++;
+    if (CommsTimeout >= 60000)
+    {
+        CommsTimeout = 60000;    // Cap to prevent overflow
+        PowerScale   = 9;        // Reduce motor authority on comms loss
+    }
+    else
+    {
+        PowerScale = 7;          // Normal operation
+    }
+}
+
+//****************************************************************************************************************
+//  RunSerialTelemetry
+//  Call once per loop tick. Every 80 ticks (~20ms at 4kHz) this function
+//  pushes position and PWM status packets to the host if monitoring is active.
+//  Motor 1 (left) sends 'A' + 'a' packets; Motor 2 (right) sends 'B' + 'b'.
+//****************************************************************************************************************
+
+void RunSerialTelemetry()
+{
+    SerialFeedbackCounter++;
+    if (SerialFeedbackCounter < 80) return;
+    SerialFeedbackCounter = 0;
+
+    int statusByte = PIDProcessDivider * 16 + Disable_Left + (Disable_Right * 2);
+
+    if (SerialFeedbackEnabled == 1)
+    {
+        SendTwoValues('A', Feedback_Left  / 4, Target_Left  / 4, COM0);
+        SendTwoValues('a', statusByte, constrain(PWMout_Left,  0, 255), COM0);
+    }
+    else if (SerialFeedbackEnabled == 2)
+    {
+        SendTwoValues('B', Feedback_Right / 4, Target_Right / 4, COM0);
+        SendTwoValues('b', statusByte, constrain(PWMout_Right, 0, 255), COM0);
+    }
+}
+
+//****************************************************************************************************************
+//  ReadEEProm_Extended
+//  Completes the ReadEEProm function by restoring Ki, Kd, PWMoffset,
+//  PWMmax, PWMrev and PIDProcessDivider for both motors — values that
+//  were saved by WriteEEProm() but not loaded in the original ReadEEProm().
+//****************************************************************************************************************
+
+void ReadEEProm_Extended()
+{
+    if (EEPROM.read(0) != 114) return;    // Only run if EEPROM was previously saved
+
+    Ki_Left_x100      = ReadEEPRomWord(13);
+    Kd_Left_x100      = ReadEEPRomWord(15);
+    PWMoffset_Left    = EEPROM.read(23);
+    PWMmax_Left       = EEPROM.read(25);
+    PWMrev_Left       = EEPROM.read(27);
+
+    Ki_Right_x100     = ReadEEPRomWord(33);
+    Kd_Right_x100     = ReadEEPRomWord(35);
+    PWMoffset_Right   = EEPROM.read(43);
+    PWMmax_Right      = EEPROM.read(45);
+    PWMrev_Right      = EEPROM.read(47);
+
+    PIDProcessDivider = constrain(EEPROM.read(50), 1, 10);
+    Timer1FreqkHz     = EEPROM.read(51);
+    if (Timer1FreqkHz < 1 || Timer1FreqkHz > 31) Timer1FreqkHz = 25;
+}
