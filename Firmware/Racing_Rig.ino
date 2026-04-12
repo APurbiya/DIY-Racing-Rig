@@ -467,8 +467,16 @@ void RunRigDiagnostics()
     Serial.print(F("  PWM Output:   ")); 
     Serial.println(PWMout_Left);
     Serial.print(F("  Status:       ")); 
-    if(Disable_Left) { Serial.println(F("OFFLINE (SAFETY)")); }
-    else             { Serial.println(F("ACTIVE")); }
+    if(Disable_Left) 
+    { 
+        Serial.println(F("OFFLINE (SAFETY)")); 
+    }
+
+    else             
+    {
+        Serial.println(F("ACTIVE")); 
+    }
+    
     Serial.println(F("\n[AXIS B - RIGHT MOTOR]"));
     Serial.print(F("  Feedback Raw: ")); 
     Serial.println(Feedback_Right);
@@ -500,6 +508,18 @@ void ManualCalibrationMode()
 {
     // Routine to center the rig before PID takes over
 }
+
+// --- End of original Racing_Rig code ---
+// ========================================
+// === DAY 2 ADDITIONS (~400 lines)
+//     - Comms watchdog + PowerScale
+//     - PID process divider
+//     - Serial feedback auto-reporting
+//     - SendValue / SendTwoValues
+//     - DeltaLoopCount
+//     - Full extended command parser
+//     - Proper packet-level serial handler
+// ========================================
 
 // --- Comms watchdog state ---
 unsigned int  CommsTimeout      = 0;   // Counts up each loop tick; reset on valid packet
@@ -734,11 +754,18 @@ void ParseCommand_Extended(int ComPort)
         // --- Serial monitor feedback ---
         case 'm':
             if (RxBuffer[1][ComPort] == 'o' && RxBuffer[2][ComPort] == '1')
+            {
                 SerialFeedbackEnabled = 1;
+            }
             else if (RxBuffer[1][ComPort] == 'o' && RxBuffer[2][ComPort] == '2')
+            {
                 SerialFeedbackEnabled = 2;
+            }
             else if (RxBuffer[1][ComPort] == 'o' && RxBuffer[2][ComPort] == '0')
+            {
                 SerialFeedbackEnabled = 0;
+            }
+
             break;
 
         // --- Save to EEPROM ---
@@ -883,5 +910,299 @@ void ReadEEProm_Extended()
 
     PIDProcessDivider = constrain(EEPROM.read(50), 1, 10);
     Timer1FreqkHz     = EEPROM.read(51);
-    if (Timer1FreqkHz < 1 || Timer1FreqkHz > 31) Timer1FreqkHz = 25;
+    if (Timer1FreqkHz < 1 || Timer1FreqkHz > 31) 
+    {
+        Timer1FreqkHz = 25;
+    }
+}
+
+//****************************************************************************************************************
+//  ManualCalibrationMode (fully implemented)
+//  Drives both motors slowly toward center position (512) at reduced power.
+//  Exits automatically once both axes are within deadzone, or after 5 seconds.
+//  Type 'x' in the Serial Monitor at any time to abort safely.
+//****************************************************************************************************************
+
+void ManualCalibrationMode_Full()
+{
+    Serial.println(F("\n--- MANUAL CALIBRATION MODE ---"));
+    Serial.println(F("Centering both axes to position 512..."));
+    Serial.println(F("Send 'x' to abort."));
+
+    int savedTarget_L  = Target_Left;
+    int savedTarget_R  = Target_Right;
+    int savedDisable_L = Disable_Left;
+    int savedDisable_R = Disable_Right;
+
+    Target_Left   = 512;
+    Target_Right  = 512;
+    Disable_Left  = 0;
+    Disable_Right = 0;
+
+    unsigned long calStart   = millis();
+    unsigned long calTimeout = 5000;
+    bool          centered   = false;
+
+    while ((millis() - calStart) < calTimeout)
+    {
+        if (Serial.available() && Serial.read() == 'x')
+        {
+            Serial.println(F("Calibration aborted."));
+            break;
+        }
+
+        Feedback_Left  = analogRead(FeedbackPin_Left);
+        Feedback_Right = analogRead(FeedbackPin_Right);
+        SmoothingModule_Left();
+        SmoothingModule_Right();
+
+        int errL = abs(Target_Left  - Feedback_Left);
+        int errR = abs(Target_Right - Feedback_Right);
+
+        if (errL > DeadZone_Left)
+        {
+            DriveMotorLeft( (Target_Left  > Feedback_Left)  ?  40 : -40 );
+        }
+
+        else
+        {
+            DriveMotorLeft(0);
+        }
+
+        if (errR > DeadZone_Right)
+        {
+            DriveMotorRight( (Target_Right > Feedback_Right) ?  40 : -40 );
+        }
+
+        else
+        {
+            DriveMotorRight(0);
+        }
+
+        if (errL <= DeadZone_Left && errR <= DeadZone_Right)
+        {
+            centered = true;
+            break;
+        }
+        delay(5);
+    }
+
+    DisableMotorLeft();
+    DisableMotorRight();
+
+    if (centered) 
+    {
+        Serial.println(F("Calibration complete - both axes centered."));
+    }
+    else          
+    {
+        Serial.println(F("Calibration timed out - check mechanical range."));
+    }
+
+    Target_Left   = savedTarget_L;
+    Target_Right  = savedTarget_R;
+    Disable_Left  = savedDisable_L;
+    Disable_Right = savedDisable_R;
+}
+
+
+//****************************************************************************************************************
+//  WriteEEProm_Full
+//  Extends the original WriteEEProm to also save PIDProcessDivider
+//  and Timer1FreqkHz so they survive a power cycle.
+//****************************************************************************************************************
+
+void WriteEEProm_Full()
+{
+    WriteEEProm();    // Run the original save first
+    EEPROM.write(50, constrain(PIDProcessDivider, 1, 10));
+    EEPROM.write(51, Timer1FreqkHz);
+}
+
+
+#ifdef MODE2
+//****************************************************************************************************************
+//  MODE2 H-Bridge Output Functions
+//  For the 43A "Chinese" IBT-2 H-bridge which uses a single direction
+//  pin and an inverted PWM signal rather than two direction pins.
+//****************************************************************************************************************
+
+void SetOutputsMotor_Left_MODE2()
+{
+    int out;
+
+    if ((Feedback_Left > InputClipMax_Left) && (PWMrev_Left != 0))
+    {
+        digitalWrite(ENApin_Left, LOW);
+        MyPWMWrite(PWMpin_Left, PWMrev_Left);
+        PWMout_Left = PWMrev_Left;
+    }
+    else if ((Feedback_Left < InputClipMin_Left) && (PWMrev_Left != 0))
+    {
+        digitalWrite(ENApin_Left, HIGH);
+        MyPWMWrite(PWMpin_Left, 255 - PWMrev_Left);
+        PWMout_Left = PWMrev_Left;
+    }
+    else if ((Target_Left > (Feedback_Left + DeadZone_Left)) ||
+             (Target_Left < (Feedback_Left - DeadZone_Left)))
+    {
+        if (PWMout_Left >= 0)
+        {
+            out = PWMout_Left + PWMoffset_Left;
+            if (out > PWMmax_Left) out = PWMmax_Left;
+            digitalWrite(ENApin_Left, HIGH);
+            MyPWMWrite(PWMpin_Left, 255 - out);
+        }
+        else
+        {
+            out = abs(PWMout_Left) + PWMoffset_Left;
+            if (out > PWMmax_Left) out = PWMmax_Left;
+            digitalWrite(ENApin_Left, LOW);
+            MyPWMWrite(PWMpin_Left, out);
+        }
+    }
+    else
+    {
+        digitalWrite(ENApin_Left, LOW);
+        MyPWMWrite(PWMpin_Left, 0);
+        PWMout_Left = PWMoffset_Left;
+    }
+}
+
+void SetOutputsMotor_Right_MODE2()
+{
+    int out;
+
+    if ((Feedback_Right > InputClipMax_Right) && (PWMrev_Right != 0))
+    {
+        digitalWrite(ENApin_Right, LOW);
+        MyPWMWrite(PWMpin_Right, PWMrev_Right);
+        PWMout_Right = PWMrev_Right;
+    }
+    else if ((Feedback_Right < InputClipMin_Right) && (PWMrev_Right != 0))
+    {
+        digitalWrite(ENApin_Right, HIGH);
+        MyPWMWrite(PWMpin_Right, 255 - PWMrev_Right);
+        PWMout_Right = PWMrev_Right;
+    }
+    else if ((Target_Right > (Feedback_Right + DeadZone_Right)) ||
+             (Target_Right < (Feedback_Right - DeadZone_Right)))
+    {
+        if (PWMout_Right >= 0)
+        {
+            out = PWMout_Right + PWMoffset_Right;
+            if (out > PWMmax_Right) out = PWMmax_Right;
+            digitalWrite(ENApin_Right, HIGH);
+            MyPWMWrite(PWMpin_Right, 255 - out);
+        }
+        else
+        {
+            out = abs(PWMout_Right) + PWMoffset_Right;
+            if (out > PWMmax_Right) out = PWMmax_Right;
+            digitalWrite(ENApin_Right, LOW);
+            MyPWMWrite(PWMpin_Right, out);
+        }
+    }
+    else
+    {
+        digitalWrite(ENApin_Right, LOW);
+        MyPWMWrite(PWMpin_Right, 0);
+        PWMout_Right = PWMoffset_Right;
+    }
+}
+#endif
+
+
+//****************************************************************************************************************
+//  setup_Full
+//  Drop-in replacement for setup() that adds DiagPin init,
+//  calls ReadEEProm_Extended() to load all saved params,
+//  re-applies Timer1 freq from EEPROM, and runs ManualCalibrationMode_Full
+//  to center the rig on every power-on.
+//****************************************************************************************************************
+
+void setup_Full()
+{
+    Serial.begin(500000);
+
+    pinMode(ENApin_Left,  OUTPUT);
+    pinMode(ENBpin_Left,  OUTPUT);
+    pinMode(ENApin_Right, OUTPUT);
+    pinMode(ENBpin_Right, OUTPUT);
+    pinMode(PWMpin_Left,  OUTPUT);
+    pinMode(PWMpin_Right, OUTPUT);
+    pinMode(DiagPin,      OUTPUT);
+
+    ReadEEProm();              // Load base params
+    ReadEEProm_Extended();     // Load Ki, Kd, PWM, divider params
+
+    InitialisePWMTimer1(Timer1FreqkHz * 1000);
+
+    sbi(ADCSRA, ADPS2);
+    cbi(ADCSRA, ADPS1);
+    cbi(ADCSRA, ADPS0);
+
+    DisableMotorLeft();
+    DisableMotorRight();
+
+    Serial.println(F("RACING_RIG_ONLINE"));
+    Serial.println(F("Type [h] for commands, [d] for diagnostics."));
+
+    ManualCalibrationMode_Full();    // Auto-center on power-on
+}
+
+
+//****************************************************************************************************************
+//  loop_Full
+//  Complete main loop integrating all subsystems:
+//    1. Extended serial handler (full command set + error counting)
+//    2. Timed PID update with process divider and diag pin toggle
+//    3. Serial telemetry auto-reporting every 20ms
+//    4. Comms watchdog scaling motor power on connection loss
+//****************************************************************************************************************
+
+void loop_Full()
+{
+    // 1. Process all incoming serial packets
+    CheckSerial0_Extended();
+
+    // 2. Timed PID update at 4kHz
+    CurrentTime = micros();
+    if (CurrentTime < NextProcessTime) return;
+    NextProcessTime = CurrentTime + PROCESS_PERIOD_uS;
+
+    ToggleDiagPin();
+
+    PIDProcessCounter++;
+    if (PIDProcessCounter >= PIDProcessDivider)
+    {
+        PIDProcessCounter = 0;
+
+        Feedback_Left  = analogRead(FeedbackPin_Left);
+        Feedback_Right = analogRead(FeedbackPin_Right);
+
+        SmoothingModule_Left();
+        SmoothingModule_Right();
+
+        if (Feedback_Left  > CutoffLimitMax_Left  || Feedback_Left  < CutoffLimitMin_Left)
+        {
+            DisableMotorLeft();
+        }
+
+        if (Feedback_Right > CutoffLimitMax_Right || Feedback_Right < CutoffLimitMin_Right)
+        {
+            DisableMotorRight();
+        }
+
+        CalculatePID_Left();
+        CalculatePID_Right();
+
+        LoopCounter++;
+    }
+
+    // 3. Auto telemetry every ~20ms
+    RunSerialTelemetry();
+
+    // 4. Comms watchdog
+    RunCommsWatchdog();
 }
