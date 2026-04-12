@@ -26,6 +26,29 @@ By Arnav Purbiya and Sai Avula
 
 # System Overview
 
+The DIY-Racing-Rig is a motion-actuated platform designed to bridge the gap between virtual racing and physical reality. By translating in-game telemetry into physical movement, the rig simulates the G-forces, weight shifts, and road textures experienced during high-performance driving.
+
+### How It Works
+The system operates as a **2-Degree-of-Freedom (2DOF)** motion platform, focusing on the two most critical axes for racing immersion:
+* **Pitch:** Simulates the longitudinal forces of acceleration (leaning back) and braking (leaning forward).
+* **Roll:** Simulates the lateral forces of cornering and weight transfer through turns.
+
+### Mechanical Architecture
+* **The Fulcrum:** A heavy-duty, 3D-printed **Universal Joint (U-Joint)** serves as the mechanical heart of the rig. It supports the full weight of the upper chassis and driver while allowing for fluid movement across both axes.
+* **Actuation:** High-torque 24V 250W geared DC motors drive the platform via a physical linkage system. These motors are capable of rapid transitions to mimic sudden weight shifts or bumps in the road.
+
+### Electronic Control & Feedback
+To ensure precision and eliminate "drift," the rig utilizes a **Closed-Loop Feedback System**:
+1.  **Telemetry Data:** Software (SimTools) extracts live physics data from the game and sends it to an **Arduino Uno R3**.
+2.  **Logic:** The Arduino calculates the required position for each motor.
+3.  **Position Sensing:** **AS5600 Magnetic Encoders** mounted to the motors provide real-time angular feedback, allowing the Arduino to verify the rig's exact orientation.
+4.  **Power Delivery:** High-current **BTS7960 Motor Drivers** translate the logic signals into raw power, moving the motors to the target position with high torque and low latency.
+
+### Design Goals
+* **Accessibility:** Built primarily from standard 2x4 timber and 3D-printed components to keep costs low.
+* **Durability:** Strategic use of PETG in high-stress areas (U-Joint and Control Arms) ensures long-term structural integrity.
+* **Immersive Precision:** The combination of 250W motors and magnetic encoders provides a snappy, responsive experience that reacts instantly to in-game events.
+
 # CAD
 You can find the cad on onshape, link down bellow
 https://cad.onshape.com/documents/b552f3261af86a9135d49db9/w/8cfbd36bcd7ad18b09077ea0/e/34b6498e013fb992d3270d66?configuration=default&renderMode=0&uiState=69d663939217aa308a3ff657
