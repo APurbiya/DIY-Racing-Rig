@@ -7,7 +7,8 @@
 
 
 # DIY-Racing-Rig
-An open-source, 2-Degree-of-Freedom (2DOF) motion flight and racing simulator designed for high immersion and DIY accessibility. This project utilizes a robust timber frame, high-torque DC gear motors, and magnetic encoders to translate in-game telemetry into real-time physical pitch and roll.
+An open-source, 2-Degree-of-Freedom (2DOF) motion racing simulator designed for high immersion and DIY accessibility. This project utilizes a robust timber frame, high-torque DC gear motors, and magnetic encoders to translate in-game telemetry into real-time physical pitch and roll.
+
 By Arnav Purbiya and Sai Avula
 
 # Table of Contents
